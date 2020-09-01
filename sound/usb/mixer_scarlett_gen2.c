@@ -2655,7 +2655,6 @@ static void scarlett2_mixer_interrupt(struct urb *urb)
 	struct usb_mixer_interface *mixer = urb->context;
 	int len = urb->actual_length;
 	int ustatus = urb->status;
-	u32 data;
 
 	if (ustatus != 0)
 		goto requeue;
