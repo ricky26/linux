@@ -104,6 +104,10 @@ static bool auto_poweroff = true;
 module_param(auto_poweroff, bool, S_IWUSR | S_IRUGO);
 MODULE_PARM_DESC(auto_poweroff, "Power off wireless controllers on suspend");
 
+static bool g923_xbox_mode;
+module_param(g923_xbox_mode, bool, 0444);
+MODULE_PARM_DESC(g923_xbox_mode, "Keep the G923 in Xbox mode instead of HID++ mode");
+
 static const struct xpad_device {
 	u16 idVendor;
 	u16 idProduct;
@@ -332,6 +336,7 @@ static const struct xpad_device {
 	{ 0x24c6, 0x5d04, "Razer Sabertooth", 0, XTYPE_XBOX360 },
 	{ 0x24c6, 0xfafe, "Rock Candy Gamepad for Xbox 360", 0, XTYPE_XBOX360 },
 	{ 0x3767, 0x0101, "Fanatec Speedster 3 Forceshock Wheel", 0, XTYPE_XBOX },
+	{ 0x046d, 0xc26d, "Logitech G923 Wheel (Xbox Mode)", 0, XTYPE_XBOXONE },
 	{ 0xffff, 0xffff, "Chinese-made Xbox Controller", 0, XTYPE_XBOX },
 	{ 0x0000, 0x0000, "Generic X-Box pad", 0, XTYPE_UNKNOWN }
 };
@@ -419,6 +424,7 @@ static const struct usb_device_id xpad_table[] = {
 	XPAD_XBOX360_VENDOR(0x045e),		/* Microsoft X-Box 360 controllers */
 	XPAD_XBOXONE_VENDOR(0x045e),		/* Microsoft X-Box One controllers */
 	XPAD_XBOX360_VENDOR(0x046d),		/* Logitech X-Box 360 style controllers */
+	XPAD_XBOXONE_VENDOR(0x046d),		/* Logitech X-Box One style controllers */
 	XPAD_XBOX360_VENDOR(0x056e),		/* Elecom JC-U3613M */
 	XPAD_XBOX360_VENDOR(0x06a3),		/* Saitek P3600 */
 	XPAD_XBOX360_VENDOR(0x0738),		/* Mad Catz X-Box 360 controllers */
@@ -532,6 +538,18 @@ static const u8 xboxone_rumblebegin_init[] = {
 static const u8 xboxone_rumbleend_init[] = {
 	0x09, 0x00, 0x00, 0x09, 0x00, 0x0F, 0x00, 0x00,
 	0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+/*
+ * A magic packet sent to the G923 to tell it to change to the HID++
+ * protocol. This is preferred when in use on Windows, so we do the same
+ * here.
+ *
+ * After receiving this packet, the device will disconnect and reappear with
+ * a different productId, which will be picked up by the Logitech HID++ driver.
+ */
+static const u8 g923_hidpp_init[] = {
+	0x0f, 0x00, 0x01, 0x01, 0x42
 };
 
 /*
@@ -992,6 +1010,18 @@ static bool xpad_prepare_next_init_packet(struct usb_xpad *xpad)
 		xpad->irq_out->transfer_buffer_length = init_packet->len;
 
 		/* Update packet with current sequence number */
+		xpad->odata[2] = xpad->odata_serial++;
+		return true;
+	}
+
+	if (!g923_xbox_mode &&
+	    xpad->dev->id.vendor == 0x046d &&
+	    xpad->dev->id.product == 0xc26d) {
+		dev_dbg(&xpad->intf->dev,
+			"%s - enabling G923 PC-mode\n",
+			__func__);
+		memcpy(xpad->odata, g923_hidpp_init, ARRAY_SIZE(g923_hidpp_init));
+		xpad->irq_out->transfer_buffer_length = ARRAY_SIZE(g923_hidpp_init);
 		xpad->odata[2] = xpad->odata_serial++;
 		return true;
 	}
